@@ -1,5 +1,8 @@
 from .models import CustomUser
 from . import serializer
+from rest_framework.generics import (UpdateAPIView,
+                                     DestroyAPIView,
+                                     ListAPIView)
 from .renderers import UserRenderers
 from rest_framework.views import APIView
 from rest_framework import status
@@ -51,6 +54,104 @@ class GetUserData(APIView):
         data = CustomUser.objects.all()
         serialized_data = serializer.EmployeeSerializer(data)
         return Response(data=serialized_data.data)
+
+
+# View class for getting list of all Employees registered(Can be performed by
+# Manager only)
+class GetEmpListView(ListAPIView):
+    serializer_class = serializer.EmployeeSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        if user.role != "MANAGER":
+            response = {
+                'success': False,
+                'status_code': status.HTTP_403_FORBIDDEN,
+                'message': 'You are not authorized to perform this action'
+            }
+            return Response(response, status.HTTP_403_FORBIDDEN)
+        else:
+            users = CustomUser.objects.filter(role="EMPLOYEE")
+            if users.count() >= 1:
+                serializer = self.serializer_class(users, many=True)
+                response = {
+                    'success': True,
+                    'status_code': status.HTTP_200_OK,
+                    'message': 'Successfully fetched users',
+                    'users': serializer.data
+
+                }
+                return Response(response, status=status.HTTP_200_OK)
+            else:
+                return Response({'message': 'No employees available in this category!'},
+                                status=status.HTTP_204_NO_CONTENT)
+
+
+# View class for updating details of an existing employee(Can be performed by
+# Manager only)
+class UpdateEmpView(UpdateAPIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = serializer.EmployeeSerializer
+
+    def get_queryset(self):
+        user_id = self.kwargs['pk']
+        return CustomUser.objects.filter(id=user_id)
+
+    def patch(self, request, *args, **kwargs):
+        user = request.user
+        if user.role != "MANAGER":
+            response = {
+                'success': False,
+                'status_code': status.HTTP_403_FORBIDDEN,
+                'message': 'You are not authorized to perform this action'
+            }
+            return Response(response, status.HTTP_403_FORBIDDEN)
+        else:
+            instance = self.get_object()
+            instance.first_name = request.data["first_name"]
+            instance.last_name = request.data["last_name"]
+            instance.date_of_birth = request.data["date_of_birth"]
+            instance.address = request.data["address"]
+            instance.contact_number = request.data["contact_number"]
+
+            serializer = self.get_serializer(instance, data=request.data)
+
+            if serializer.is_valid(raise_exception=True):
+                self.partial_update(serializer)
+
+            response = {
+                'success': True,
+                'message': 'Employee updated successfully!',
+                'user': serializer.data
+            }
+
+            return Response(response, status=status.HTTP_200_OK)
+
+
+# View class for deleting an existing employee(Can be performed by Manager only)
+class DeleteEmpView(DestroyAPIView):
+    permission_classes = (IsAuthenticated,)
+
+    def delete(self, request, *args, **kwargs):
+        user = request.user
+        if user.role != "MANAGER":
+            response = {
+                'success': False,
+                'status_code': status.HTTP_403_FORBIDDEN,
+                'message': 'You are not authorized to perform this action'
+            }
+            return Response(response, status.HTTP_403_FORBIDDEN)
+        else:
+            user_id = self.kwargs["pk"]
+            user_profile = CustomUser.objects.filter(id=user_id)
+            serializers = serializer.EmployeeSerializer(user_profile, many=True)
+
+            if serializers.data[0]["role"] == "SUPERUSER" or serializers.data[0]["role"] == "MANAGER":
+                return Response({'message': 'You cannot delete any superuser or manager!'}, status.HTTP_403_FORBIDDEN)
+            else:
+                user_profile.delete()
+                return Response({'message': 'Employee Deleted Successfully!'}, status.HTTP_204_NO_CONTENT)
 
 
 class LoginUser(APIView):
